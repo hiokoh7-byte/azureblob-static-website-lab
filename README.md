@@ -7,7 +7,7 @@ Deploying a public-facing website using Azure Blob Storage's static website host
 ![Cost](https://img.shields.io/badge/Cost-Free_Tier-yellow)
 
 ## 🎥 Watch Me Live
-[Watch me build this lab live →](PASTE_YOUR_LINK_HERE)
+[Watch me build this lab live →](https://www.loom.com/share/e41ea92057ac4d8e9db25083962b0cdc)
 
 ## Overview
 
@@ -110,15 +110,132 @@ h1 { color: #0078d4; }
 | "404, The requested content does not exist" | Confirm the file is named exactly `index.html`. Azure is case-sensitive, `Index.html` or `index.txt` will not work. Also confirm it was uploaded to the `$web` container specifically |
 | "Storage account name is already taken" | Storage names must be unique across all of Azure, not just your subscription. Add random numbers to the end (e.g., `stlab01jhante99`) |
 
-## Clean Up
+## Terraform Deployment (Infrastructure as Code Version)
 
-Always tear down after finishing to avoid unnecessary charges.
+Everything in Steps 1 through 3 above can be deployed with a few lines of Terraform instead of the portal, same resource group, same storage account, same static website configuration, just reproducible and version-controlled. The `azurerm_storage_account` resource supports a `static_website` block directly, so there's no separate manual toggle needed, enabling it is just part of the resource definition.
+
+The actual `.tf` files for this deployment are in this repo. Folder structure:
+
+```
+azure-static-website-lab/
+├── main.tf              ← resource group, storage account, static website config, index.html upload
+├── variables.tf          ← input variables
+├── outputs.tf            ← primary endpoint URL printed after apply
+├── terraform.tfvars.example
+└── index.html             ← the site content, uploaded automatically on apply
+```
+
+### `main.tf`
+
+```hcl
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.0"
+    }
+  }
+}
+
+provider "azurerm" {
+  features {}
+}
+
+resource "azurerm_resource_group" "main" {
+  name     = var.resource_group_name
+  location = var.location
+}
+
+resource "azurerm_storage_account" "main" {
+  name                     = var.storage_account_name
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+
+  static_website {
+    index_document     = "index.html"
+    error_404_document = "404.html"
+  }
+}
+
+# Uploads index.html straight into the $web container Azure creates
+# automatically once static_website is enabled above.
+resource "azurerm_storage_blob" "index" {
+  name                   = "index.html"
+  storage_account_name   = azurerm_storage_account.main.name
+  storage_container_name = "$web"
+  type                   = "Block"
+  source                 = "${path.module}/index.html"
+  content_type           = "text/html"
+}
+```
+
+### `variables.tf`
+
+```hcl
+variable "resource_group_name" {
+  type    = string
+  default = "rg-lab01-yourname"
+}
+
+variable "location" {
+  type    = string
+  default = "East US"
+}
+
+variable "storage_account_name" {
+  description = "Must be globally unique, lowercase letters and numbers only."
+  type        = string
+}
+```
+
+### `terraform.tfvars.example`
+
+```hcl
+resource_group_name  = "rg-lab01-yourname"
+location              = "East US"
+storage_account_name  = "stlab01yourname"
+```
+
+### `outputs.tf`
+
+```hcl
+output "primary_web_endpoint" {
+  description = "The public URL of the static website."
+  value       = azurerm_storage_account.main.primary_web_endpoint
+}
+```
+
+### Deploy
+
+```bash
+az login
+terraform init
+terraform plan
+terraform apply
+```
+
+Expect 3 resources to add: the resource group, the storage account, and the uploaded blob. Once `apply` finishes, run:
+
+```bash
+terraform output primary_web_endpoint
+```
+
+and open that URL to confirm the same "Hello from the Cloud!" page loads, just deployed entirely through code instead of clicking through the portal.
+
+### Terraform teardown
+
+```bash
+terraform destroy
+```
+
+## Clean Up (Manual Portal Deployment)
+
+If you deployed through the portal steps instead of Terraform, always tear down after finishing to avoid unnecessary charges.
 
 1. Go to **Resource Groups**
 2. Click `rg-lab01-[yourname]`
 3. Click **Delete resource group**
 4. Type the name to confirm, then **Delete**
 
-## Related Labs
-
-- **Lab 02** — Building a Secure 2-Tier Web Application (the natural next step, moving from PaaS to IaaS)
